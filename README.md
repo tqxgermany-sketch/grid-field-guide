@@ -3,6 +3,8 @@
 An interactive, illustrated knowledge map of the electricity grid — from the public grid down to the wallbox.
 Built as a single static page: open `index.html` and everything works, no server needed.
 
+**Live:** <https://tqxgermany-sketch.github.io/grid-field-guide/>
+
 **Focus:** the low-voltage side (below 20 kV) — distribution, rooftop PV, home storage, EV charging.
 
 ## What's inside
@@ -33,10 +35,14 @@ To keep it safe / move it between machines:
 
 `knowledge.js` only provides the *templates* used before you write your own text.
 
-## Deploy (optional)
+## Deploy
 
-GitHub Pages: **Settings → Pages → Source: Deploy from a branch → main / (root)**.
-Because the site lives in a subfolder, use <https://USERNAME.github.io/REPO/grid-map/>.
+Live site: <https://tqxgermany-sketch.github.io/grid-field-guide/>
+
+GitHub Pages is enabled from **main / (root)**. The repository root *is* the site root
+(this repo was initialised inside the project folder), so `index.html` sits at `/` — no extra path segment.
+
+Pushing to `main` triggers a rebuild; allow 1–2 minutes, then hard-refresh (Ctrl+F5).
 
 ## Adding a new device
 
