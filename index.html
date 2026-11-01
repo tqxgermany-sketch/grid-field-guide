@@ -220,6 +220,18 @@
     border-top: 1px solid var(--border); padding-top: 14px; margin-top: 4px;
   }
   .foot-hint { font-size: 12px; color: var(--muted); }
+  .publish-box {
+    display: none; margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+    background: #f2f7fd; border: 1px solid #d6e6f7; font-size: 12.8px; color: var(--ink);
+  }
+  .publish-box.show { display: block; }
+  .publish-box b { color: var(--accent); }
+  .publish-box ol { margin: 6px 0 0 18px; }
+  .publish-box li { margin: 3px 0; }
+  .pub-badge {
+    font-size: 11.5px; padding: 3px 9px; border-radius: 12px;
+    background: #eef2f7; color: #55647a; font-weight: 500;
+  }
 </style>
 </head>
 <body>
@@ -332,7 +344,17 @@
       <label class="btn" style="display:inline-block;cursor:pointer">⭱ Import
         <input type="file" accept=".json" onchange="importData(event)" style="display:none">
       </label>
+      <button class="btn" onclick="publishContent()" style="border-color:var(--accent);color:var(--accent)">🌐 Publish to site</button>
       <span class="foot-hint">Backup of your written pages, mastery marks and notes (one JSON file).</span>
+    </div>
+    <div class="publish-box" id="publishBox">
+      <b>content.json downloaded.</b> To make your content visible to everyone:
+      <ol>
+        <li>Move the downloaded file into the <code>grid-map</code> folder and rename it to <code>content.json</code> (replace the old one)</li>
+        <li>Commit &amp; push it (or ask me to do it)</li>
+        <li>Wait ~1 minute, then Ctrl+F5 on the live site</li>
+      </ol>
+      <div class="foot-hint" style="margin-top:6px">Personal mastery marks and notes are <b>not</b> published — they stay in your own browser.</div>
     </div>
   </div>
 </div>
@@ -356,8 +378,33 @@ let notes = loadStore(STORE_NOTES, {});
 /* content written by you in the in-page editor (overrides knowledge.js templates) */
 const STORE_CONTENT = "gk-content-v1";
 let content = loadStore(STORE_CONTENT, {});
+
+/* ---------- published layer ----------
+ * content.json sits next to index.html and is loaded on start-up.
+ * Priority:  local edits (localStorage)  >  content.json  >  knowledge.js template
+ * So your own browser always shows your newest work, while visitors
+ * (who have no local storage) see whatever was published.
+ */
+let published = null;          // { content: {...}, cards: {...} }
+let publishedLoaded = false;
+
+function fetchPublished() {
+  return fetch("content.json?v=" + Date.now(), { cache: "no-store" })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      if (d && typeof d === "object") { published = d; publishedLoaded = true; }
+    })
+    .catch(function() { /* file:// or not published yet — silently use templates */ });
+}
+function pubPage(id)  { return (published && published.content && published.content[id]) || ""; }
+function pubCard(id)  { return (published && published.cards && published.cards[id]) || null; }
+
 function getDetail(id) {
-  return (content[id] && content[id].trim()) ? content[id] : KNOWLEDGE[id].detail;
+  if (Object.prototype.hasOwnProperty.call(content, id)) {
+    return (content[id] && content[id].trim()) ? content[id] : KNOWLEDGE[id].detail;
+  }
+  if (pubPage(id).trim()) return pubPage(id);
+  return KNOWLEDGE[id].detail;
 }
 
 const MASTERY = {
@@ -448,11 +495,22 @@ const STORE_SUMMARY = "gk-summary-v1";
 let cardOverrides = loadStore(STORE_SUMMARY, {});
 function getSummary(id) {
   const o = cardOverrides[id];
-  return (o && o.summary && o.summary.trim()) ? o.summary : KNOWLEDGE[id].summary;
+  if (o) {
+    if (o.deleted) return KNOWLEDGE[id].summary;
+    if (o.summary && o.summary.trim()) return o.summary;
+  }
+  const p = pubCard(id);
+  if (p && p.summary && p.summary.trim()) return p.summary;
+  return KNOWLEDGE[id].summary;
 }
 function getParams(id) {
   const o = cardOverrides[id];
-  if (o && Object.prototype.hasOwnProperty.call(o, "params")) return o.params;
+  if (o) {
+    if (o.deleted) return KNOWLEDGE[id].params || [];
+    if (Object.prototype.hasOwnProperty.call(o, "params")) return o.params;
+  }
+  const p = pubCard(id);
+  if (p && Object.prototype.hasOwnProperty.call(p, "params")) return p.params;
   return KNOWLEDGE[id].params || [];
 }
 
@@ -461,11 +519,13 @@ function openPanel(id) {
   const t = KNOWLEDGE[id];
   document.getElementById("p-title").textContent = t.title;
   const edited = !!cardOverrides[id];
+  const isPub = !edited && !!pubCard(id);
   document.getElementById("p-tags").innerHTML =
     '<span class="tag">' + t.category + "</span>" +
     (t.voltage && t.voltage !== "—" ? '<span class="tag">' + t.voltage + "</span>" : "") +
     '<span class="tag depth">' + (t.depth === "key" ? "★ key topic" : t.depth) + "</span>" +
-    (edited ? '<span class="edited-badge">✎ yours</span>' : "");
+    (edited ? '<span class="edited-badge">✎ yours</span>' : "") +
+    (isPub ? '<span class="pub-badge">🌐 published</span>' : "");
   const mb = document.getElementById("p-mastery");
   const m = getMastery(id);
   mb.textContent = MASTERY[m].label;
@@ -474,7 +534,7 @@ function openPanel(id) {
   document.getElementById("p-params").innerHTML = getParams(id)
     .map(r => '<div class="param-row"><span>' + esc(r[0]) + '</span><span>' + esc(r[1]) + "</span></div>")
     .join("");
-  const rel = (t.detail.match(/\[\[([a-z0-9-]+)\]\]/g) || [])
+  const rel = (getDetail(id).match(/\[\[([a-z0-9-]+)\]\]/g) || [])
     .map(s => s.slice(2, -2)).filter((v, i, a) => a.indexOf(v) === i);
   document.getElementById("p-related").innerHTML = rel
     .map(r => KNOWLEDGE[r] ? '<button class="chip" data-topic="' + r + '">' + KNOWLEDGE[r].title + "</button>" : "")
@@ -521,7 +581,7 @@ function savePanelEdit() {
 function cancelPanelEdit() { openPanel(currentTopic); }
 function resetPanelDefaults() {
   if (!confirm("Reset this card to the original text from knowledge.js?")) return;
-  delete cardOverrides[currentTopic];
+  cardOverrides[currentTopic] = { deleted: true };
   saveStore(STORE_SUMMARY, cardOverrides);
   openPanel(currentTopic);
 }
@@ -533,10 +593,12 @@ function openDetail(id) {
   document.getElementById("d-title").textContent = t.title;
   const m = getMastery(id);
   const isEdited = content[id] && content[id].trim();
+  const isPub = !isEdited && !!pubPage(id).trim();
   document.getElementById("d-meta").innerHTML =
     '<span class="tag">' + t.category + "</span>" +
     (t.voltage && t.voltage !== "—" ? '<span class="tag">' + t.voltage + "</span>" : "") +
     (isEdited ? '<span class="edited-badge">✎ your own text</span>' : "") +
+    (isPub ? '<span class="pub-badge">🌐 published</span>' : "") +
     '<button class="mastery-btn" onclick="cycleMastery(\'' + id + "');refreshDetail()\">" + MASTERY[m].label + "</button>";
   document.getElementById("d-content").innerHTML = mdParse(getDetail(id));
   document.getElementById("d-content").style.display = "";
@@ -576,7 +638,7 @@ function endEdit() {
 }
 function resetTemplate() {
   if (!confirm("Discard your text on this page and restore the empty template?")) return;
-  delete content[currentTopic];
+  content[currentTopic] = "";
   saveStore(STORE_CONTENT, content);
   document.getElementById("d-editor-ta").value = KNOWLEDGE[currentTopic].detail;
   document.getElementById("d-edit-hint").textContent = "Template restored — click Save to keep it";
@@ -651,6 +713,41 @@ function importData(ev) {
   r.readAsText(f);
 }
 
+/* ---------- publish: build content.json for the live site ---------- */
+function buildPublishPayload() {
+  const pages = Object.assign({}, (published && published.content) || {});
+  Object.keys(content).forEach(function(id) {
+    const v = content[id];
+    if (v && v.trim()) pages[id] = v; else delete pages[id];   // "" = explicitly cleared
+  });
+  const cards = Object.assign({}, (published && published.cards) || {});
+  Object.keys(cardOverrides).forEach(function(id) {
+    const o = cardOverrides[id] || {};
+    if (o.deleted) { delete cards[id]; return; }
+    if ((o.summary && o.summary.trim()) || (o.params && o.params.length)) {
+      cards[id] = { summary: o.summary || "", params: o.params || [] };
+    } else { delete cards[id]; }
+  });
+  return { published: new Date().toISOString(), content: pages, cards: cards };
+}
+function publishContent() {
+  if (location.protocol === "file:" && !publishedLoaded) {
+    if (!confirm("You are viewing a local copy, so content.json cannot be read here.\nPages written on the live site will NOT be included in this file.\n\nPublish anyway?")) return;
+  }
+  const data = buildPublishPayload();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "content.json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const box = document.getElementById("publishBox");
+  box.classList.add("show");
+  box.insertAdjacentHTML("afterbegin",
+    '<div style="margin-bottom:6px"><b>' + Object.keys(data.content).length + " pages</b> and <b>" +
+    Object.keys(data.cards).length + " cards</b> included.</div>");
+}
+
 /* ================= global handlers ================= */
 document.addEventListener("click", function(e) {
   const chip = e.target.closest(".chip");
@@ -666,6 +763,12 @@ document.addEventListener("keydown", e => {
 /* ================= init ================= */
 buildHotspots();
 updateStats();
+fetchPublished().then(function() {
+  if (!publishedLoaded) return;
+  updateStats();
+  /* if a page is already open, refresh it with the published baseline */
+  if (currentTopic && !(content[currentTopic] && content[currentTopic].trim())) refreshDetail();
+});
 </script>
 </body>
 </html>

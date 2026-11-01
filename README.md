@@ -13,6 +13,7 @@ Built as a single static page: open `index.html` and everything works, no server
 | --- | --- |
 | `index.html` | Page shell, illustration, hotspots, knowledge panel, editor |
 | `knowledge.js` | Topic definitions: titles, categories, summaries, parameter rows, page templates, hotspot coordinates |
+| `content.json` | **Published** pages + summary cards — loaded by every visitor |
 | `assets/panorama.jpg` | The illustrated grid panorama (1671 × 941) |
 
 ## Using it
@@ -34,6 +35,21 @@ To keep it safe / move it between machines:
 - Commit that JSON into this repository as a backup
 
 `knowledge.js` only provides the *templates* used before you write your own text.
+
+## Publishing your content
+
+Content you write in the browser is private to that browser. To make it part of the site:
+
+1. **Topic Index → 🌐 Publish to site** — downloads `content.json` (pages + summary cards only; mastery marks and notes are never published)
+2. Move it into this folder, replacing the existing `content.json`
+3. Commit & push
+4. Wait ~1 minute, then Ctrl+F5 on the live site
+
+Load order in the page: **your local edits → `content.json` → `knowledge.js` template**.
+So your own browser always shows your newest work, while anyone else sees the published version.
+
+`content.json` cannot be read when the page is opened via `file://` (browser security) — publishing
+therefore only makes sense from the live site.
 
 ## Deploy
 
