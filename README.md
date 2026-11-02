@@ -25,6 +25,26 @@ Built as a single static page: open `index.html` and everything works, no server
 5. **✎** on the summary card — edit the overview text and the key-parameter rows.
 6. Mastery marks (🔴 🟡 🟢) and personal notes are saved per topic.
 
+## Linking pages
+
+Inside any page write a wiki link:
+
+```
+[[mppt]]                          → jumps to the page with id "mppt"
+[[mppt|maximum power point]]      → same, but shows your own label
+```
+
+- A link to an **existing** page renders as a blue chip; click it and the target opens.
+  The **← Back** button returns to the page you came from (multi-level).
+- A link to an **unknown** page renders as a dashed `+ ...` chip — clicking it creates that
+  page and opens the editor straight away. So you can write first, fill in later.
+- **+ New page** (top right of any knowledge page, or Topic Index) creates a page that is not
+  attached to the illustration — for deep dives like MPPT, VDE-AR-N 4105, charge curves, etc.
+- The page id is shown in small grey text under the title, so you always know what to link to.
+- Your own pages are grouped under **My pages** in the Topic Index; 🗑 deletes one.
+
+Editor tip: **🔗 Insert link** drops a `[[id]]` at the cursor for you.
+
 ## Where your writing is stored
 
 Content you type in the browser is kept in **localStorage** of that browser — it does not live in these files.
