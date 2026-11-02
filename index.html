@@ -327,6 +327,7 @@
       <div class="editor-bar">
         <span class="editor-hint">Markdown: <b>## heading</b> · <b>**bold**</b> · <b>- list</b> · <b>| table |</b> · <b>[[page-id]]</b> link · <b>![](image.jpg)</b></span>
         <div class="editor-btns">
+          <button class="back-btn" onclick="pickImage()">🖼 Image</button>
           <button class="back-btn" onclick="insertLink()">🔗 Insert link</button>
           <button class="back-btn primary" onclick="saveEdit()">Save</button>
           <button class="back-btn" onclick="cancelEdit()">Cancel</button>
@@ -334,6 +335,7 @@
         </div>
       </div>
       <textarea id="d-editor-ta" spellcheck="false"></textarea>
+      <input type="file" id="imgInput" accept="image/*" multiple style="display:none">
       <div class="save-hint" id="d-edit-hint"></div>
     </div>
     <div class="section-label">My notes</div>
@@ -360,7 +362,7 @@
         <input type="file" accept=".json" onchange="importData(event)" style="display:none">
       </label>
       <button class="btn" onclick="publishContent()" style="border-color:var(--accent);color:var(--accent)">🌐 Publish to site</button>
-      <span class="foot-hint">Backup of your written pages, mastery marks and notes (one JSON file).</span>
+      <span class="foot-hint" id="imgStat"></span>
     </div>
     <div class="publish-box" id="publishBox">
       <b>content.json downloaded.</b> To make your content visible to everyone:
@@ -369,7 +371,7 @@
         <li>Commit &amp; push it (or ask me to do it)</li>
         <li>Wait ~1 minute, then Ctrl+F5 on the live site</li>
       </ol>
-      <div class="foot-hint" style="margin-top:6px">Personal mastery marks and notes are <b>not</b> published — they stay in your own browser.</div>
+      <div class="foot-hint" style="margin-top:6px">Personal mastery marks and notes are <b>not</b> published — they stay in your own browser. Pictures uploaded in the editor <b>are</b> published (embedded in this file).</div>
     </div>
   </div>
 </div>
@@ -385,10 +387,18 @@ function loadStore(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; }
 }
 function saveStore(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+  try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+  catch (e) { return false; }   // usually QuotaExceededError
 }
 let mastery = loadStore(STORE_MASTERY, {});
 let notes = loadStore(STORE_NOTES, {});
+
+/* images: compressed pictures you upload from the editor, keyed by short id */
+const STORE_IMAGES = "gk-images-v1";
+let images = loadStore(STORE_IMAGES, {});
+const IMG_MISSING = "data:image/svg+xml;utf8," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="320" height="120" fill="#f0f3f7" stroke="#cfd8e3" stroke-dasharray="5 4"/><text x="160" y="64" font-family="sans-serif" font-size="13" fill="#8a97a6" text-anchor="middle">image not found</text></svg>'
+);
 
 /* content written by you in the in-page editor (overrides knowledge.js templates) */
 const STORE_CONTENT = "gk-content-v1";
@@ -418,6 +428,18 @@ function fetchPublished() {
 function pubPage(id)  { return (published && published.content && published.content[id]) || ""; }
 function pubCard(id)  { return (published && published.cards && published.cards[id]) || null; }
 function pubMeta(id)  { return (published && published.pages && published.pages[id]) || null; }
+
+/* ---------- images ----------
+ * ![](assets/photo.jpg)   → a real file inside the assets folder (best for publishing)
+ * ![](img:abc123)         → a picture uploaded in the editor, compressed and kept with the page
+ */
+function resolveImg(src) {
+  if (src.indexOf("img:") === 0) {
+    const id = src.slice(4);
+    return images[id] || (published && published.images && published.images[id]) || IMG_MISSING;
+  }
+  return src;
+}
 
 /* ---------- one entry point for every page: map topics + your own pages ---------- */
 function getTopic(id) {
@@ -498,7 +520,9 @@ function slug(s) {
 
 function inlineMD(s) {
   let out = esc(s);
-  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">');
+  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(m, alt, src) {
+    return '<img alt="' + alt + '" src="' + resolveImg(src.trim()) + '">';
+  });
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
   /* [[id]] or [[id|label]] — link to any page; a missing page becomes a "create" chip */
   out = out.replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, function(m, rawId, label) {
@@ -766,19 +790,91 @@ function resetTemplate() {
   document.getElementById("d-editor-ta").value = pageTemplate(currentTopic);
   document.getElementById("d-edit-hint").textContent = "Template restored — click Save to keep it";
 }
-/* insert a [[link]] at the cursor */
-function insertLink() {
+/* ---------- insert helpers ---------- */
+function insertAtCursor(text) {
   const ta = document.getElementById("d-editor-ta");
-  const title = prompt("Link to which page?\n\nType the exact title of an existing page, or a new title — it will be created as an empty page.");
-  if (!title || !title.trim()) return;
-  const id = slug(title);
-  const isNew = !getTopic(id);
-  const text = "[[" + id + (isNew ? "|" + title.trim() : "") + "]]";
   const s = ta.selectionStart, e = ta.selectionEnd;
   ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
   ta.focus();
   ta.setSelectionRange(s + text.length, s + text.length);
 }
+/* insert a [[link]] at the cursor */
+function insertLink() {
+  const title = prompt("Link to which page?\n\nType the exact title of an existing page, or a new title — it will be created as an empty page.");
+  if (!title || !title.trim()) return;
+  const id = slug(title);
+  const isNew = !getTopic(id);
+  insertAtCursor("[[" + id + (isNew ? "|" + title.trim() : "") + "]]");
+}
+
+/* ---------- images ---------- */
+function pickImage() { document.getElementById("imgInput").click(); }
+
+function compressImage(file, cb) {
+  const reader = new FileReader();
+  reader.onload = function() {
+    const im = new Image();
+    im.onload = function() {
+      const MAX = 1200;
+      let w = im.naturalWidth, h = im.naturalHeight;
+      const scale = Math.min(1, MAX / w, MAX / h);
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const cx = canvas.getContext("2d");
+      const keepPng = /png|webp|gif/i.test(file.type) && file.size < 500 * 1024;
+      if (!keepPng) { cx.fillStyle = "#ffffff"; cx.fillRect(0, 0, w, h); }
+      cx.drawImage(im, 0, 0, w, h);
+      cb(canvas.toDataURL(keepPng ? "image/png" : "image/jpeg", 0.82), w, h);
+    };
+    im.onerror = function() { alert("Could not read that image file."); };
+    im.src = reader.result;
+  };
+  reader.onerror = function() { alert("Could not read that image file."); };
+  reader.readAsDataURL(file);
+}
+
+function addImageFile(file) {
+  if (!file || !/^image\//.test(file.type)) return;
+  compressImage(file, function(dataUri, w, h) {
+    const kb = Math.round(dataUri.length * 0.75 / 1024);
+    if (kb > 600 && !confirm("This picture is " + kb + " KB after compression, which eats a lot of browser storage.\n\nInsert anyway?")) return;
+    const id = "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    images[id] = dataUri;
+    if (!saveStore(STORE_IMAGES, images)) {
+      delete images[id];
+      alert("Browser storage is full — the picture could not be saved.\n\nOptions:\n• delete old pictures / pages\n• or put the file in the assets folder and write ![](assets/your-file.jpg)");
+      return;
+    }
+    insertAtCursor("![](" + "img:" + id + ")\n");
+    document.getElementById("d-edit-hint").textContent = "✓ picture added (" + w + "×" + h + ", " + kb + " KB)";
+  });
+}
+
+document.getElementById("imgInput").addEventListener("change", function() {
+  Array.prototype.forEach.call(this.files, addImageFile);
+  this.value = "";
+});
+(function wireImageDrop() {
+  const ta = document.getElementById("d-editor-ta");
+  ta.addEventListener("dragover", function(e) { e.preventDefault(); });
+  ta.addEventListener("drop", function(e) {
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    Array.prototype.forEach.call(e.dataTransfer.files, addImageFile);
+  });
+  ta.addEventListener("paste", function(e) {
+    const items = (e.clipboardData || {}).items || [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.indexOf("image/") === 0) {
+        e.preventDefault();
+        addImageFile(items[i].getAsFile());
+        return;
+      }
+    }
+  });
+})();
 
 document.getElementById("d-notes").addEventListener("input", function() {
   if (!currentTopic) return;
@@ -819,12 +915,18 @@ function openIndex() {
     }).join("") + "</div></div>"
   ).join("");
   document.getElementById("indexOverlay").classList.add("show");
+  const nImg = Object.keys(images).length;
+  let kbImg = 0;
+  Object.keys(images).forEach(k => { kbImg += (images[k] || "").length * 0.75 / 1024; });
+  document.getElementById("imgStat").textContent = nImg
+    ? "· " + nImg + " picture" + (nImg > 1 ? "s" : "") + ", ~" + Math.round(kbImg) + " KB"
+    : "";
 }
 function closeIndex() { document.getElementById("indexOverlay").classList.remove("show"); }
 
 /* ---------- export / import ---------- */
 function exportData() {
-  const data = { exported: new Date().toISOString(), content: content, cards: cardOverrides, pages: myPages, mastery: mastery, notes: notes };
+  const data = { exported: new Date().toISOString(), content: content, cards: cardOverrides, pages: myPages, images: images, mastery: mastery, notes: notes };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -842,6 +944,7 @@ function importData(ev) {
       if (d.content) { content = d.content; saveStore(STORE_CONTENT, content); }
       if (d.cards) { cardOverrides = d.cards; saveStore(STORE_SUMMARY, cardOverrides); }
       if (d.pages) { myPages = d.pages; saveStore(STORE_PAGES, myPages); }
+      if (d.images) { images = d.images; saveStore(STORE_IMAGES, images); }
       if (d.mastery) { mastery = d.mastery; saveStore(STORE_MASTERY, mastery); }
       if (d.notes) { notes = d.notes; saveStore(STORE_NOTES, notes); }
       location.reload();
@@ -872,7 +975,12 @@ function buildPublishPayload() {
     if (p.deleted) { delete meta[id]; return; }
     meta[id] = { title: p.title || id, category: p.category || "My pages" };
   });
-  return { published: new Date().toISOString(), content: pages, cards: cards, pages: meta };
+  /* only the pictures actually used by the published pages */
+  const used = Object.keys(pages).map(k => pages[k]).join("\n");
+  const imgs = Object.assign({}, (published && published.images) || {});
+  Object.keys(imgs).forEach(function(id) { if (used.indexOf("img:" + id) < 0) delete imgs[id]; });
+  Object.keys(images).forEach(function(id) { if (used.indexOf("img:" + id) > -1) imgs[id] = images[id]; });
+  return { published: new Date().toISOString(), content: pages, cards: cards, pages: meta, images: imgs };
 }
 function publishContent() {
   if (location.protocol === "file:" && !publishedLoaded) {
@@ -888,8 +996,9 @@ function publishContent() {
   const box = document.getElementById("publishBox");
   box.classList.add("show");
   box.insertAdjacentHTML("afterbegin",
-    '<div style="margin-bottom:6px"><b>' + Object.keys(data.content).length + " pages</b> and <b>" +
-    Object.keys(data.cards).length + " cards</b> included.</div>");
+    '<div style="margin-bottom:6px"><b>' + Object.keys(data.content).length + " pages</b>, <b>" +
+    Object.keys(data.cards).length + " cards</b>, <b>" + Object.keys(data.images).length +
+    " pictures</b> included.</div>");
 }
 
 /* ================= global handlers ================= */

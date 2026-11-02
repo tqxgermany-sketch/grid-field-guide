@@ -45,6 +45,26 @@ Inside any page write a wiki link:
 
 Editor tip: **🔗 Insert link** drops a `[[id]]` at the cursor for you.
 
+## Pictures
+
+Two ways to get an image onto a page.
+
+**1. Upload — easiest.** In the editor click **🖼 Image**, or drag a file onto the text box,
+or paste one from the clipboard. The picture is downscaled to max 1200 px, compressed,
+and stored with the page as `![](img:xxxx)`. It travels with **Publish**, nothing to copy around.
+
+**2. From the assets folder.** Put the file in `grid-map/assets/` and write:
+
+```
+![](assets/mppt-curve.png)
+```
+
+Best for large diagrams or pictures reused across pages — these stay real files in git and keep
+`content.json` small.
+
+Note: uploaded pictures live in browser storage (a few MB total). If it fills up the page says so
+and refuses to save; switch to way 2 for heavy material.
+
 ## Where your writing is stored
 
 Content you type in the browser is kept in **localStorage** of that browser — it does not live in these files.
