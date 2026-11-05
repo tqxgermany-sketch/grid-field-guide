@@ -55,6 +55,10 @@ Links point to the page **id**, never to its title — so a rename is always saf
   in every page is rewritten to `[[new-id]]`; body, notes and the mastery mark move with it.
   Built-in ids are locked on purpose.
 
+If the id you want is already taken, the page names the owner and opens it. When that owner is
+still an empty page (the usual accident: you wrote `[[converter]]`, clicked the dashed `+` chip
+and a blank page appeared), you are offered to take the id over in one click.
+
 ## Pictures
 
 Two ways to get an image onto a page.

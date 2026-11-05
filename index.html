@@ -813,7 +813,28 @@ function changeTopicId() {
   if (v === null) return;
   const newId = slug(v);
   if (!newId || newId === oldId) return;
-  if (getTopic(newId)) { alert("That id is already used by another page."); return; }
+
+  /* the id may already be taken — say by whom, and offer to take over an empty page */
+  const taken = getTopic(newId);
+  if (taken) {
+    const body = getDetail(newId).trim();
+    const untouched = !body || body === pageTemplate(newId).trim();
+    const hasNotes = !!(notes[newId] && notes[newId].trim());
+    if (!isMapTopic(newId) && untouched && !hasNotes) {
+      if (!confirm('The id "' + newId + '" already belongs to an empty page "' + taken.title + '".\n\nDelete that empty page and give the id to this one?')) return;
+      myPages[newId] = { deleted: true };
+      delete content[newId];
+      delete notes[newId];
+      delete cardOverrides[newId];
+      delete titleOverrides[newId];
+      saveStore(STORE_PAGES, myPages);
+    } else {
+      alert('The id "' + newId + '" is already used by the page "' + taken.title +
+        '".\n\nOpen it (Topic Index), rename it or delete it first, then try again.');
+      openDetail(newId);
+      return;
+    }
+  }
 
   if (Object.prototype.hasOwnProperty.call(content, oldId)) { content[newId] = content[oldId]; delete content[oldId]; }
   if (notes[oldId] !== undefined) { notes[newId] = notes[oldId]; delete notes[oldId]; }
