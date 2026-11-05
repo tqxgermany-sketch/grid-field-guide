@@ -238,8 +238,9 @@
   .chip-new:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
   .page-id {
     font-family: Consolas, monospace; font-size: 11.5px; color: #93a1b1;
-    margin: 2px 0 4px;
+    margin: 2px 0 4px; cursor: pointer; display: inline-block;
   }
+  .page-id:hover { color: var(--accent); text-decoration: underline dotted; }
 </style>
 </head>
 <body>
@@ -314,13 +315,14 @@
       <h1 id="d-title">—</h1>
       <div class="page-actions">
         <button class="back-btn" onclick="newPage()" title="Create a new page">+ New page</button>
+        <button class="back-btn" onclick="renamePage()" title="Rename this page — links are not affected">🏷</button>
         <button class="back-btn" id="d-delete-btn" onclick="deletePage()" style="display:none" title="Delete this page">🗑</button>
         <button class="back-btn primary" id="d-edit-btn" onclick="startEdit()">✎ Edit page</button>
         <button class="back-btn" id="d-back-btn" onclick="goBackPage()">← Back to map</button>
       </div>
     </div>
     <div class="meta" id="d-meta"></div>
-    <div class="page-id" id="d-id"></div>
+    <div class="page-id" id="d-id" onclick="changeTopicId()" title="Click to change the page id (all links are rewritten)"></div>
     <div class="md" id="d-content"></div>
 
     <div class="editor" id="d-editor">
@@ -428,6 +430,12 @@ function fetchPublished() {
 function pubPage(id)  { return (published && published.content && published.content[id]) || ""; }
 function pubCard(id)  { return (published && published.cards && published.cards[id]) || null; }
 function pubMeta(id)  { return (published && published.pages && published.pages[id]) || null; }
+function pubTitle(id) { return (published && published.titles && published.titles[id]) || ""; }
+
+/* titles you renamed yourself — links use ids, so renaming never breaks them */
+const STORE_TITLES = "gk-titles-v1";
+let titleOverrides = loadStore(STORE_TITLES, {});
+function getTitle(id) { return titleOverrides[id] || pubTitle(id) || ""; }
 
 /* ---------- images ----------
  * ![](assets/photo.jpg)   → a real file inside the assets folder (best for publishing)
@@ -442,7 +450,7 @@ function resolveImg(src) {
 }
 
 /* ---------- one entry point for every page: map topics + your own pages ---------- */
-function getTopic(id) {
+function rawTopic(id) {
   const base = KNOWLEDGE[id];
   const mine = myPages[id] && !myPages[id].deleted ? myPages[id] : null;
   const pmeta = pubMeta(id);
@@ -456,6 +464,12 @@ function getTopic(id) {
     voltage: "—", depth: "note", summary: "", params: [], hotspots: []
   };
   return null;
+}
+/* a display name you changed yourself always wins; the id never changes */
+function getTopic(id) {
+  const t = rawTopic(id);
+  const custom = getTitle(id);
+  return (t && custom) ? Object.assign({}, t, { title: custom }) : t;
 }
 function isMapTopic(id) { return !!KNOWLEDGE[id]; }
 function allTopicIds() {
@@ -495,7 +509,7 @@ function getMastery(id) { return mastery[id] || "red"; }
 function buildHotspots() {
   const wrap = document.getElementById("mapWrap");
   Object.keys(KNOWLEDGE).forEach(id => {
-    const t = KNOWLEDGE[id];
+    const t = getTopic(id);
     (t.hotspots || []).forEach(h => {
       const el = document.createElement("div");
       el.className = "hotspot";
@@ -760,6 +774,82 @@ function deletePage() {
   closeDetail();
 }
 
+/* ---------- rename a page (links keep working: they point to the id) ---------- */
+function renamePage() {
+  const id = currentTopic;
+  if (!id) return;
+  const cur = getTopic(id).title;
+  const name = prompt("New name for this page:\n\nLinks are not affected — they point to the id, not the name.", cur);
+  if (name === null) return;
+  const t = name.trim();
+  if (!t || t === cur) return;
+  if (myPages[id] && !myPages[id].deleted) {
+    myPages[id].title = t;
+    saveStore(STORE_PAGES, myPages);
+    delete titleOverrides[id];
+  } else if (KNOWLEDGE[id] && t === KNOWLEDGE[id].title) {
+    delete titleOverrides[id];              // back to the built-in name
+  } else {
+    titleOverrides[id] = t;
+  }
+  saveStore(STORE_TITLES, titleOverrides);
+  openDetail(id, true);
+  updateStats();
+}
+
+/* ---------- change the id and rewrite every link that points to it ---------- */
+function rewriteLinks(text, oldId, newId) {
+  if (!text || typeof text !== "string") return text;
+  return text.replace(new RegExp("\\[\\[" + oldId + "(?=[\\]|])", "g"), "[[" + newId);
+}
+function changeTopicId() {
+  const oldId = currentTopic;
+  if (!oldId) return;
+  if (isMapTopic(oldId)) {
+    alert("Built-in pages keep their id — the hotspot on the illustration is bound to it.\n\nYou can still change the name with 🏷.");
+    return;
+  }
+  const v = prompt("Change the page id? Every link pointing to it is rewritten automatically.\n\nNew id (lowercase, no spaces):", oldId);
+  if (v === null) return;
+  const newId = slug(v);
+  if (!newId || newId === oldId) return;
+  if (getTopic(newId)) { alert("That id is already used by another page."); return; }
+
+  if (Object.prototype.hasOwnProperty.call(content, oldId)) { content[newId] = content[oldId]; delete content[oldId]; }
+  if (notes[oldId] !== undefined) { notes[newId] = notes[oldId]; delete notes[oldId]; }
+  if (mastery[oldId]) { mastery[newId] = mastery[oldId]; delete mastery[oldId]; }
+  if (cardOverrides[oldId]) { cardOverrides[newId] = cardOverrides[oldId]; delete cardOverrides[oldId]; }
+  if (titleOverrides[oldId]) { titleOverrides[newId] = titleOverrides[oldId]; delete titleOverrides[oldId]; }
+  if (myPages[oldId]) { myPages[newId] = Object.assign({}, myPages[oldId]); delete myPages[oldId]; }
+
+  /* rewrite the links in every page you have written */
+  Object.keys(content).forEach(function(k) { content[k] = rewriteLinks(content[k], oldId, newId); });
+  Object.keys(cardOverrides).forEach(function(k) {
+    const o = cardOverrides[k];
+    if (o && o.summary) o.summary = rewriteLinks(o.summary, oldId, newId);
+  });
+  /* and in the already published version, so the next publish stays consistent */
+  if (published) {
+    if (published.content) Object.keys(published.content).forEach(function(k) {
+      published.content[k] = rewriteLinks(published.content[k], oldId, newId);
+    });
+    if (published.pages && published.pages[oldId]) {
+      published.pages[newId] = published.pages[oldId]; delete published.pages[oldId];
+    }
+    if (published.titles && published.titles[oldId]) {
+      published.titles[newId] = published.titles[oldId]; delete published.titles[oldId];
+    }
+  }
+
+  saveStore(STORE_CONTENT, content);
+  saveStore(STORE_NOTES, notes);
+  saveStore(STORE_MASTERY, mastery);
+  saveStore(STORE_SUMMARY, cardOverrides);
+  saveStore(STORE_TITLES, titleOverrides);
+  saveStore(STORE_PAGES, myPages);
+  openDetail(newId, true);
+}
+
 /* ---------- in-page editor ---------- */
 function startEdit() {
   const ta = document.getElementById("d-editor-ta");
@@ -926,7 +1016,7 @@ function closeIndex() { document.getElementById("indexOverlay").classList.remove
 
 /* ---------- export / import ---------- */
 function exportData() {
-  const data = { exported: new Date().toISOString(), content: content, cards: cardOverrides, pages: myPages, images: images, mastery: mastery, notes: notes };
+  const data = { exported: new Date().toISOString(), content: content, cards: cardOverrides, pages: myPages, images: images, titles: titleOverrides, mastery: mastery, notes: notes };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -945,6 +1035,7 @@ function importData(ev) {
       if (d.cards) { cardOverrides = d.cards; saveStore(STORE_SUMMARY, cardOverrides); }
       if (d.pages) { myPages = d.pages; saveStore(STORE_PAGES, myPages); }
       if (d.images) { images = d.images; saveStore(STORE_IMAGES, images); }
+      if (d.titles) { titleOverrides = d.titles; saveStore(STORE_TITLES, titleOverrides); }
       if (d.mastery) { mastery = d.mastery; saveStore(STORE_MASTERY, mastery); }
       if (d.notes) { notes = d.notes; saveStore(STORE_NOTES, notes); }
       location.reload();
@@ -980,7 +1071,13 @@ function buildPublishPayload() {
   const imgs = Object.assign({}, (published && published.images) || {});
   Object.keys(imgs).forEach(function(id) { if (used.indexOf("img:" + id) < 0) delete imgs[id]; });
   Object.keys(images).forEach(function(id) { if (used.indexOf("img:" + id) > -1) imgs[id] = images[id]; });
-  return { published: new Date().toISOString(), content: pages, cards: cards, pages: meta, images: imgs };
+  /* renamed built-in pages (their id stays the same) */
+  const titles = {};
+  Object.keys(KNOWLEDGE).forEach(function(id) {
+    const t = getTitle(id);
+    if (t && t !== KNOWLEDGE[id].title) titles[id] = t;
+  });
+  return { published: new Date().toISOString(), content: pages, cards: cards, pages: meta, images: imgs, titles: titles };
 }
 function publishContent() {
   if (location.protocol === "file:" && !publishedLoaded) {

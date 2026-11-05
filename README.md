@@ -45,6 +45,16 @@ Inside any page write a wiki link:
 
 Editor tip: **🔗 Insert link** drops a `[[id]]` at the cursor for you.
 
+### Renaming a page
+
+Links point to the page **id**, never to its title — so a rename is always safe.
+
+- **🏷** on any page changes the display name. Built-in pages keep their id (the hotspot on the
+  illustration is bound to it), so the map and every link keep working.
+- Click the small `id: ...` line under the title to change the **id** itself. Every `[[old-id]]`
+  in every page is rewritten to `[[new-id]]`; body, notes and the mastery mark move with it.
+  Built-in ids are locked on purpose.
+
 ## Pictures
 
 Two ways to get an image onto a page.
