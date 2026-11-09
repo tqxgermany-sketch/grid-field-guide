@@ -79,6 +79,21 @@ Best for large diagrams or pictures reused across pages — these stay real file
 Note: uploaded pictures live in browser storage (a few MB total). If it fills up the page says so
 and refuses to save; switch to way 2 for heavy material.
 
+## Formulas
+
+LaTeX, rendered with KaTeX (a local copy in `assets/katex/`, so it works offline too).
+
+```
+$U = R I$            inline formula, right in the text
+
+$$
+P_{loss} = 3 I^2 R_{line}
+$$                  display formula on its own lines
+```
+
+Works inside headings, lists and table cells. `$5 and $10` style amounts are left alone.
+If KaTeX ever fails to load, the raw LaTeX is shown in a code style instead.
+
 ## Animations & interactive figures
 
 Any figure standing on its own line is rendered as a block; the file type decides the element.

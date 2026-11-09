@@ -252,7 +252,13 @@
     margin: 2px 0 4px; cursor: pointer; display: inline-block;
   }
   .page-id:hover { color: var(--accent); text-decoration: underline dotted; }
+
+  /* ---------- math (KaTeX, local copy in assets/katex so it works offline) ---------- */
+  .md .katex { font-size: 1.06em; }
+  .md .math-block { margin: 12px 0; overflow-x: auto; }
+  .md .math-fallback { font-family: Consolas, monospace; background: #f0f3f7; border-radius: 4px; padding: 1px 6px; font-size: 13px; }
 </style>
+<link rel="stylesheet" href="assets/katex/katex.min.css">
 </head>
 <body>
 
@@ -338,7 +344,7 @@
 
     <div class="editor" id="d-editor">
       <div class="editor-bar">
-        <span class="editor-hint">Markdown: <b>## heading</b> · <b>**bold**</b> · <b>- list</b> · <b>| table |</b> · <b>[[page-id]]</b> link · <b>![](image.jpg)</b> · <b>![](clip.mp4)</b> · <b>!embed[](plot.html)</b></span>
+        <span class="editor-hint">Markdown: <b>## heading</b> · <b>**bold**</b> · <b>- list</b> · <b>| table |</b> · <b>$E=mc^2$</b> formula · <b>[[page-id]]</b> link · <b>![](image.jpg)</b> · <b>![](clip.mp4)</b> · <b>!embed[](plot.html)</b></span>
         <div class="editor-btns">
           <button class="back-btn" onclick="pickImage()">🖼 Image</button>
           <button class="back-btn" onclick="insertLink()">🔗 Insert link</button>
@@ -390,6 +396,7 @@
 </div>
 
 <script src="knowledge.js"></script>
+<script defer src="assets/katex/katex.min.js"></script>
 <script>
 /* ================= state ================= */
 let currentTopic = null;
@@ -610,8 +617,45 @@ function inlineMD(s) {
   return out;
 }
 
+/* ---------- math ----------
+ * $E = mc^2$        inline formula
+ * $$ ... $$         display formula, on its own line(s)
+ * Written in LaTeX. Rendered with KaTeX (local copy, works offline);
+ * while/if KaTeX is missing the raw LaTeX shows in a code style.
+ */
+let mathSegs = [];
+function extractMath(src) {
+  mathSegs = [];
+  const stash = (tex, block) => {
+    mathSegs.push({ tex: tex.trim(), block: !!block });
+    return "\u0001M" + (mathSegs.length - 1) + "\u0001";
+  };
+  let out = src.replace(/\$\$([\s\S]+?)\$\$/g, (m, tex) => stash(tex, true));
+  out = out.replace(/\$((?:[^$\n\\]|\\.)+?)\$/g, function(m, tex) {
+    /* spaces hugging the delimiters usually mean money ("costs $5 and $10"), not math */
+    if (!tex.trim() || tex !== tex.trim()) return m;
+    return stash(tex, false);
+  });
+  return out;
+}
+function renderMath(html) {
+  return html.replace(/\u0001M(\d+)\u0001/g, function(m, k) {
+    const seg = mathSegs[+k];
+    if (!seg || !seg.tex) return "";
+    if (window.katex && window.katex.renderToString) {
+      try {
+        const rendered = window.katex.renderToString(seg.tex, {
+          displayMode: seg.block, throwOnError: false, strict: false, trust: false
+        });
+        return seg.block ? '<div class="math-block">' + rendered + "</div>" : rendered;
+      } catch (e) { /* fall through to the plain-text fallback */ }
+    }
+    return '<code class="math-fallback">$' + esc(seg.tex) + "$</code>";
+  });
+}
+
 function mdParse(src) {
-  const lines = normFigures(src).split("\n");
+  const lines = extractMath(normFigures(src)).split("\n");
   let html = "", i = 0;
   const isBlock = l => /^([#>|-]|\d+\. )/.test(l) || l.startsWith("|") || l.trim() === "" ||
     /^!\[[^\]]*\]\([^)]+\)\s*$/.test(l);
@@ -653,7 +697,7 @@ function mdParse(src) {
     while (i < lines.length && !isBlock(lines[i])) { para.push(lines[i]); i++; }
     html += "<p>" + inlineMD(para.join(" ")) + "</p>";
   }
-  return html;
+  return renderMath(html);
 }
 
 /* ================= panel ================= */
@@ -1196,6 +1240,10 @@ document.addEventListener("keydown", e => {
 /* ================= init ================= */
 buildHotspots();
 updateStats();
+/* if KaTeX finished loading after a page was already open, render its formulas */
+window.addEventListener("load", function() {
+  if (currentTopic && document.getElementById("detailOverlay").classList.contains("show")) refreshDetail();
+});
 fetchPublished().then(function() {
   if (!publishedLoaded) return;
   updateStats();
