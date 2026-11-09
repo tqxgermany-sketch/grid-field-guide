@@ -161,6 +161,17 @@
     padding: 9px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 14px;
   }
   .md img { max-width: 100%; border-radius: 10px; margin: 10px 0; }
+  .md .md-fig { margin: 14px 0; }
+  .md .md-fig img { margin: 0; display: block; }
+  .md video.fig-video {
+    width: 100%; max-width: 100%; border-radius: 10px; margin: 0;
+    display: block; background: #0d1117; border: 1px solid var(--border);
+  }
+  .md iframe.embed-frame {
+    width: 100%; height: 440px; border: 1px solid var(--border);
+    border-radius: 10px; background: #fff; display: block;
+  }
+  .md .fig-note { font-size: 12px; color: var(--muted); margin-top: -6px; }
   .md code { background: #f0f3f7; border-radius: 4px; padding: 1px 6px; font-size: 13px; font-family: Consolas, monospace; }
 
   /* ---------- notes ---------- */
@@ -327,7 +338,7 @@
 
     <div class="editor" id="d-editor">
       <div class="editor-bar">
-        <span class="editor-hint">Markdown: <b>## heading</b> · <b>**bold**</b> · <b>- list</b> · <b>| table |</b> · <b>[[page-id]]</b> link · <b>![](image.jpg)</b></span>
+        <span class="editor-hint">Markdown: <b>## heading</b> · <b>**bold**</b> · <b>- list</b> · <b>| table |</b> · <b>[[page-id]]</b> link · <b>![](image.jpg)</b> · <b>![](clip.mp4)</b> · <b>!embed[](plot.html)</b></span>
         <div class="editor-btns">
           <button class="back-btn" onclick="pickImage()">🖼 Image</button>
           <button class="back-btn" onclick="insertLink()">🔗 Insert link</button>
@@ -449,6 +460,35 @@ function resolveImg(src) {
   return src;
 }
 
+/* ---------- figures: image / video / embedded interactive page ----------
+ * ![](assets/curve.gif)        → animated GIF (plays by itself)
+ * ![](assets/curve.mp4)        → video player (loop, muted, with controls)
+ * !embed[](assets/curve.html)  → an interactive page inside a frame
+ *                                (Plotly / MATLAB web export / any HTML)
+ * Videos and embeds are real files in assets/ — they are never stored in the
+ * browser, so keep them reasonably small (a few MB) and commit them with git.
+ */
+function mediaHTML(alt, src) {
+  const s = String(src).trim();
+  const path = s.split("?")[0].split("#")[0].toLowerCase();
+  const label = esc(alt || "");
+
+  if (/^embed\b/i.test(alt || "") || /\.html?$/.test(path)) {
+    return '<iframe class="embed-frame" src="' + s + '" loading="lazy" ' +
+      'title="' + (label || "interactive figure") + '" allowfullscreen></iframe>';
+  }
+  if (/\.(mp4|webm|ogv|ogg|mov)$/.test(path)) {
+    const type = /\.webm$/.test(path) ? "video/webm"
+      : /\.(ogv|ogg)$/.test(path) ? "video/ogg" : "video/mp4";
+    const url = resolveImg(s);
+    return '<video class="fig-video" controls loop muted playsinline preload="metadata">' +
+      '<source src="' + url + '" type="' + type + '">' +
+      'This browser cannot play the video. <a href="' + url + '" target="_blank">Download it</a>' +
+      '</video>';
+  }
+  return '<img alt="' + (alt || "") + '" src="' + resolveImg(s) + '">';
+}
+
 /* ---------- one entry point for every page: map topics + your own pages ---------- */
 function rawTopic(id) {
   const base = KNOWLEDGE[id];
@@ -532,11 +572,22 @@ function slug(s) {
     .replace(/^-+|-+$/g, "");
 }
 
-function inlineMD(s) {
-  let out = esc(s);
-  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(m, alt, src) {
-    return '<img alt="' + alt + '" src="' + resolveImg(src.trim()) + '">';
+/* !embed[label](file.html) is a friendlier spelling of ![embed label](file.html) */
+function normFigures(s) {
+  return String(s).replace(/!embed\[([^\]]*)\]\(([^)]+)\)/gi, function(m, alt, url) {
+    return "![embed" + (alt ? " " + alt : "") + "](" + url + ")";
   });
+}
+
+function inlineMD(s) {
+  s = normFigures(s);
+  /* pull figures out first, so markdown emphasis never touches their urls */
+  const figs = [];
+  let src = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(m, alt, url) {
+    figs.push([alt, url.trim()]);
+    return "\u0000FIG" + (figs.length - 1) + "\u0000";
+  });
+  let out = esc(src);
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
   /* [[id]] or [[id|label]] — link to any page; a missing page becomes a "create" chip */
   out = out.replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, function(m, rawId, label) {
@@ -551,15 +602,27 @@ function inlineMD(s) {
   out = out.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>");
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+  /* figures go back in last, untouched by the inline formatting above */
+  out = out.replace(/\u0000FIG(\d+)\u0000/g, function(m, k) {
+    const f = figs[+k];
+    return f ? mediaHTML(f[0], f[1]) : "";
+  });
   return out;
 }
 
 function mdParse(src) {
-  const lines = src.split("\n");
+  const lines = normFigures(src).split("\n");
   let html = "", i = 0;
-  const isBlock = l => /^([#>|-]|\d+\. )/.test(l) || l.startsWith("|") || l.trim() === "";
+  const isBlock = l => /^([#>|-]|\d+\. )/.test(l) || l.startsWith("|") || l.trim() === "" ||
+    /^!\[[^\]]*\]\([^)]+\)\s*$/.test(l);
   while (i < lines.length) {
     const line = lines[i];
+    /* a figure standing on its own line becomes a block, not a paragraph */
+    const fig = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
+    if (fig) {
+      html += '<div class="md-fig">' + mediaHTML(fig[1], fig[2].trim()) + "</div>";
+      i++; continue;
+    }
     if (line.startsWith("## ")) { html += "<h2>" + inlineMD(line.slice(3)) + "</h2>"; i++; continue; }
     if (line.startsWith("# "))  { html += "<h1>" + inlineMD(line.slice(2)) + "</h1>"; i++; continue; }
     if (line.startsWith("|")) {

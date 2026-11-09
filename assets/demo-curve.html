@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PV characteristic curves</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px 16px 18px;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #23303d; background: #ffffff;
+  }
+  h1 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .sub { font-size: 11.5px; color: #7a8899; margin-bottom: 10px; }
+  .charts { display: flex; gap: 18px; flex-wrap: wrap; }
+  .chart { flex: 1 1 320px; }
+  .chart h2 { font-size: 11.5px; font-weight: 600; color: #55647a; margin: 0 0 4px; letter-spacing: .02em; }
+  svg { width: 100%; height: auto; display: block; }
+  .controls { margin-top: 12px; display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-end; }
+  .ctl { flex: 1 1 180px; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 11.5px; color: #55647a; margin-bottom: 3px; }
+  .ctl b { color: #23303d; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: #3fa47a; }
+  button {
+    border: 1px solid #d7dee6; background: #fff; border-radius: 7px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer; color: #23303d;
+  }
+  button:hover { border-color: #3fa47a; color: #2c7f5f; }
+  .legend { font-size: 11px; color: #7a8899; margin-top: 8px; }
+  .legend span { display: inline-block; margin-right: 14px; }
+  .swatch { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+  <h1>PV cell — I-V and P-V curves</h1>
+  <div class="sub">Drag the sliders: irradiation changes the current, temperature shifts the voltage. The dot walks along the curve while sweeping.</div>
+
+  <div class="charts">
+    <div class="chart">
+      <h2>CURRENT – VOLTAGE</h2>
+      <svg id="iv" viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="chart">
+      <h2>POWER – VOLTAGE</h2>
+      <svg id="pv" viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="ctl">
+      <label>Irradiation <b><span id="v-g">1000</span> W/m²</b></label>
+      <input id="g" type="range" min="100" max="1000" step="10" value="1000">
+    </div>
+    <div class="ctl">
+      <label>Cell temperature <b><span id="v-t">25</span> °C</b></label>
+      <input id="t" type="range" min="-10" max="70" step="1" value="25">
+    </div>
+    <div class="ctl" style="flex:0 0 auto">
+      <button id="play">▶ Sweep irradiation</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:#c9d3dd"></i>1000 W/m², 25 °C (reference)</span>
+    <span><i class="swatch" style="background:#3fa47a"></i>current settings</span>
+    <span><i class="swatch" style="background:#d85a30"></i>MPP</span>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* --- a deliberately simple single-diode-ish model, good enough to show behaviour --- */
+  var ISC_REF = 10;      // A at 1000 W/m2, 25 C
+  var VOC_REF = 40;      // V at 1000 W/m2, 25 C
+  var BETA_VOC = -0.0029; // 1/K
+  var B = 0.045;          // knee sharpness
+
+  function model(g, t) {
+    var f = g / 1000;
+    var isc = ISC_REF * f * (1 + 0.0005 * (t - 25));
+    var voc = VOC_REF * (1 + BETA_VOC * (t - 25)) * (1 + 0.055 * Math.log(f || 0.0001));
+    if (voc < 0.5) voc = 0.5;
+    var k = Math.exp(1 / B) - 1;
+    return { isc: isc, voc: voc, i: function (v) {
+      var x = Math.min(Math.max(v / voc, 0), 1);
+      return Math.max(0, isc * (1 - (Math.exp(x / B) - 1) / k));
+    }};
+  }
+
+  function mpp(m) {
+    var best = { p: -1, v: 0, i: 0 };
+    for (var k = 0; k <= 400; k++) {
+      var v = m.voc * k / 400, i = m.i(v), p = v * i;
+      if (p > best.p) best = { p: p, v: v, i: i };
+    }
+    return best;
+  }
+
+  var W = 320, H = 220, PL = 40, PR = 12, PT = 12, PB = 30;
+  var PW = W - PL - PR, PH = H - PT - PB;
+
+  function sx(v, vmax) { return PL + (v / vmax) * PW; }
+  function sy(val, max) { return PT + PH - (val / max) * PH; }
+
+  function axes(svg, xlab, ylab, ymax, ystep) {
+    var g = "";
+    for (var y = 0; y <= ymax + 1e-9; y += ystep) {
+      var py = sy(y, ymax);
+      g += '<line x1="' + PL + '" y1="' + py + '" x2="' + (W - PR) + '" y2="' + py + '" stroke="#eef2f6"/>';
+      g += '<text x="' + (PL - 6) + '" y="' + (py + 3.5) + '" font-size="8.5" fill="#93a1b1" text-anchor="end">' + y + '</text>';
+    }
+    g += '<line x1="' + PL + '" y1="' + (PT + PH) + '" x2="' + (W - PR) + '" y2="' + (PT + PH) + '" stroke="#c9d3dd"/>';
+    g += '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + (PT + PH) + '" stroke="#c9d3dd"/>';
+    for (var x = 0; x <= 50; x += 10) {
+      var px = sx(x, 50);
+      g += '<text x="' + px + '" y="' + (PT + PH + 13) + '" font-size="8.5" fill="#93a1b1" text-anchor="middle">' + x + '</text>';
+    }
+    g += '<text x="' + (PL + PW / 2) + '" y="' + (H - 4) + '" font-size="9" fill="#7a8899" text-anchor="middle">' + xlab + '</text>';
+    g += '<text x="10" y="' + (PT + PH / 2) + '" font-size="9" fill="#7a8899" text-anchor="middle" transform="rotate(-90 10 ' + (PT + PH / 2) + ')">' + ylab + '</text>';
+    svg.innerHTML = g;
+    return svg;
+  }
+
+  function curvePath(m, kind, vmax, ymax) {
+    var d = "";
+    for (var k = 0; k <= 300; k++) {
+      var v = m.voc * k / 300;
+      var y = kind === "i" ? m.i(v) : v * m.i(v);
+      d += (k ? "L" : "M") + sx(v, vmax).toFixed(1) + " " + sy(y, ymax).toFixed(1);
+    }
+    return d;
+  }
+
+  var svgIV = document.getElementById("iv");
+  var svgPV = document.getElementById("pv");
+  var gEl = document.getElementById("g");
+  var tEl = document.getElementById("t");
+  var vg = document.getElementById("v-g");
+  var vt = document.getElementById("v-t");
+
+  function draw() {
+    var g = +gEl.value, t = +tEl.value;
+    vg.textContent = g;
+    vt.textContent = t;
+
+    var ref = model(1000, 25);
+    var cur = model(g, t);
+    var m = mpp(cur);
+    var pmax = Math.max(mpp(ref).p, m.p) * 1.12;
+
+    axes(svgIV, "Voltage  V", "Current  A", 12, 3);
+    axes(svgPV, "Voltage  V", "Power  W", Math.ceil(pmax / 50) * 50, Math.ceil(pmax / 50) * 50 / 4);
+
+    var common = "";
+    common += '<path d="' + curvePath(ref, "i", 50, 12) + '" fill="none" stroke="#c9d3dd" stroke-width="1.8" stroke-dasharray="4 3"/>';
+    common += '<path d="' + curvePath(cur, "i", 50, 12) + '" fill="none" stroke="#3fa47a" stroke-width="2.2"/>';
+    common += '<circle cx="' + sx(m.v, 50) + '" cy="' + sy(m.i, 12) + '" r="3.6" fill="#d85a30"/>';
+    svgIV.insertAdjacentHTML("beforeend", common);
+
+    var pv = "";
+    pv += '<path d="' + curvePath(ref, "p", 50, Math.ceil(pmax / 50) * 50) + '" fill="none" stroke="#c9d3dd" stroke-width="1.8" stroke-dasharray="4 3"/>';
+    pv += '<path d="' + curvePath(cur, "p", 50, Math.ceil(pmax / 50) * 50) + '" fill="none" stroke="#3fa47a" stroke-width="2.2"/>';
+    pv += '<circle cx="' + sx(m.v, 50) + '" cy="' + sy(m.p, Math.ceil(pmax / 50) * 50) + '" r="3.6" fill="#d85a30"/>';
+    pv += '<text x="' + (sx(m.v, 50) + 6) + '" y="' + (sy(m.p, Math.ceil(pmax / 50) * 50) - 6) +
+      '" font-size="9" fill="#d85a30">MPP ' + m.p.toFixed(0) + " W</text>";
+    svgPV.insertAdjacentHTML("beforeend", pv);
+  }
+
+  var timer = null, dir = -1;
+  document.getElementById("play").onclick = function () {
+    if (timer) { clearInterval(timer); timer = null; this.textContent = "▶ Sweep irradiation"; return; }
+    this.textContent = "⏸ Pause";
+    var self = this;
+    timer = setInterval(function () {
+      var v = +gEl.value + dir * 20;
+      if (v <= 120) { v = 120; dir = 1; }
+      if (v >= 1000) { v = 1000; dir = -1; }
+      gEl.value = v;
+      draw();
+    }, 60);
+  };
+
+  gEl.oninput = draw;
+  tEl.oninput = draw;
+  draw();
+})();
+</script>
+</body>
+</html>

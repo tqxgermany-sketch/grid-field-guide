@@ -79,6 +79,23 @@ Best for large diagrams or pictures reused across pages — these stay real file
 Note: uploaded pictures live in browser storage (a few MB total). If it fills up the page says so
 and refuses to save; switch to way 2 for heavy material.
 
+## Animations & interactive figures
+
+Any figure standing on its own line is rendered as a block; the file type decides the element.
+
+```
+![](assets/curve.gif)          animated GIF — plays by itself
+![](assets/cc-cv.mp4)          video player (loop, muted, with controls)
+!embed[](assets/plot.html)     interactive page inside a frame (zoom, sliders)
+```
+
+Videos and embeds must be real files in `assets/` (committed with git) — they are never stored
+in the browser. Keep them a few MB at most so the site stays fast. A demo lives at
+`assets/demo-curve.html` — try `!embed[](assets/demo-curve.html)` on any page.
+
+Good sources: MATLAB `VideoWriter` → mp4, `exportgraphics(...,'Append',true)` → GIF, or any
+exported interactive chart HTML (Plotly etc.).
+
 ## Where your writing is stored
 
 Content you type in the browser is kept in **localStorage** of that browser — it does not live in these files.
